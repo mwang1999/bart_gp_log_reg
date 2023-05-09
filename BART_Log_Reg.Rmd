@@ -1,0 +1,154 @@
+---
+title: "Comparative Analysis Between BART and KISS-GP in Binary Classification"
+author: "Michael Wang"
+date: "May 10, 2023"
+output: pdf_document
+urlcolor: blue
+---
+```{r}
+#Importing necessary libraries
+library(dplyr)
+library(BayesTree)
+library(caret)
+library(ggplot2)
+```
+
+
+```{r}
+#Importing data
+data <- read.csv("C:/Users/Michael Wang/Desktop/TS2/breast_cancer_data.csv")
+data <- data[2:32]
+data$diagnosis <- as.numeric(ifelse(data$diagnosis == "M", 1, 0))
+```
+
+
+```{r}
+#Setting Training and Testing Data
+set.seed(123)
+train_idx <- sample(1:nrow(data), 0.7 *nrow(data))
+train_data <- data[train_idx, ]
+x_train <- train_data[,2:31]
+y_train <- train_data$diagnosis
+test_data <- data[-train_idx, ]
+x_test <- test_data[,2:31]
+y_test <- test_data$diagnosis
+```
+
+```{r}
+#Export dataset to be used in Python for Gaussian Process Models
+write.csv(x_train, "x_train_py.csv")
+write.csv(y_train, "y_train_py.csv")
+write.csv(x_test, "x_test_py.csv")
+write.csv(y_test, "y_test_py.csv")
+```
+
+```{r}
+#Exploratory Data Analysis
+#Creating a subset based on malignant diagnoses
+m_sub = filter(data, diagnosis == 1)
+#Removing diagnosis from dataframe
+m_sub = m_sub[,!names(m_sub) %in% c("diagnosis")] 
+#Creating a subset based on malignant diagnoses
+b_sub = filter(data, diagnosis == 0)
+#Removing diagnosis from dataframe
+b_sub = b_sub[,!names(m_sub) %in% c("diagnosis")] 
+cat("we have", nrow(m_sub), "malignant diagnoses.")
+cat(" ")
+cat("we have", nrow(b_sub), "benign diagnoses")
+```
+```{r}
+#Finding the mean values for each attribute in the malignant dataset 
+m_mean = data.frame(Names = names(m_sub), Means = sprintf("%.5f", colMeans(m_sub)))
+```
+```{r}
+#Finding the mean values for each attribute in the benign dataset 
+b_mean = data.frame(Names = names(b_sub), Means = sprintf("%.5f", colMeans(b_sub)))
+```
+
+```{r}
+#Merging dataframes for barplot
+all_means = merge(m_mean, b_mean, by="Names")
+colnames(all_means) = c("Names", "Malignant Means", "Benign Means")
+all_means
+```
+```{r}
+#Making Barplot for each attribute mean of each breast cancer state
+m = as.numeric(all_means$`Malignant Means`)
+b = as.numeric(all_means$`Benign Means`)
+data = rbind(m, b)
+names = all_means$Names
+for (i in 1:length(names)){
+  barplot(data[,i], beside=TRUE, names.arg=names[i], col=c("Red", "Blue"), ylab="Mean", legend.text = c("Malignant", "Benign"))
+}
+```
+```{r}
+#Fitting and Training Logistic Regression Model
+set.seed(323)
+log_train_data = data.frame(train_data)
+log_model = glm(diagnosis~ radius_mean, family="binomial", data=train_data)
+summary(log_model)
+```
+
+```{r}
+#Printing test accuracy for logistic regression model
+log_pred <- predict(log_model, x_test, type="response")
+predicted_classes <- ifelse(log_pred > 0.5, 1, 0)
+accuracy = mean(predicted_classes == y_test)
+accuracy
+```
+```{r}
+#Generating values for Confusion matrix
+lf = caret::confusionMatrix(data=factor(c(predicted_classes)), reference=factor(c(y_test)))
+print(lf)
+```
+```{r}
+#Plotting values for confusion matrix using ggplot2
+true_value = factor(c(0,0,1,1))
+predicted_value = factor(c(0,1,0,1))
+cf_mat = c(92,6,15,58)
+df = data.frame(true_value,predicted_value,cf_mat)
+ggplot(df, mapping = aes(x = true_value, y = predicted_value)) +
+  geom_tile(aes(fill = cf_mat), colour = "white") +
+  geom_text(aes(label = cf_mat)) +
+  scale_fill_gradient(low = "white", high = "green") +
+  labs(fill = "Gradient")
+```
+
+
+
+```{r}
+#Training and Testing BART model
+set.seed(423)
+model = bart(x.train=x_train, y.train=y_train, x.test=x_test)
+plot(model)
+```
+
+```{r}
+#Calculating the means of the p-values for each prediction
+means = colMeans(pnorm(model$yhat.test))
+#For p-values above 0.5, we will denote them as a malignant classification (1)
+#For p-values below 0.5, we will denote them as a benign classification (0) 
+bart_predicted_classes = ifelse(means > 0.5, 1, 0)
+#Calculating test accuracy
+bart_acc = mean(bart_predicted_classes == y_test)
+print(bart_acc)
+```
+
+```{r}
+#Generating values for Confusion matrix
+cf = caret::confusionMatrix(data=factor(c(bart_predicted_classes)), reference=factor(c(y_test)))
+print(cf)
+```
+
+```{r}
+#Plotting values for confusion matrix using ggplot2
+true_value = factor(c(0,0,1,1))
+predicted_value = factor(c(0,1,0,1))
+cf_mat = c(97,1,6,67)
+df = data.frame(true_value,predicted_value,cf_mat)
+ggplot(df, mapping = aes(x = true_value, y = predicted_value)) +
+  geom_tile(aes(fill = cf_mat), colour = "white") +
+  geom_text(aes(label = cf_mat)) +
+  scale_fill_gradient(low = "white", high = "green") +
+  labs(fill = "Gradient")
+```
